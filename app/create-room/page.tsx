@@ -10,6 +10,8 @@ import { FaUpload } from 'react-icons/fa'
 import { Progress } from '@heroui/progress'
 import { Alert } from '@heroui/alert'
 
+import { pushRedis } from './push-kv'
+
 import { motion, AnimatePresence } from 'framer-motion'
 
 import { cn } from '@/utility/tailwind_clsx'
@@ -19,8 +21,13 @@ export default function EventRegistrationPage() {
   const [loading, setLoading] = useState(false)
   const [participants, setParticipants] = useState<string[]>([])
   const [isFileLoaded, setIsFileLoaded] = useState(false)
+  const [eventId, setEventId] = useState<string | null>(null)
+  const [eventName, setEventName] = useState<string>('')
+  const [eventInfo, setEventInfo] = useState<string>('')
+  const [operatingMode, setOperatingMode] = useState<number>(0) // 0: オンライン, 1: オフラインw
 
   const onDrop = async (files: File[]) => {
+    setIsFileLoaded(false)
     const file = files[0]
     setLoading(true)
     const reader = new FileReader()
@@ -63,6 +70,41 @@ export default function EventRegistrationPage() {
   }
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop })
 
+  const handleSubmit = async () => {
+    setLoading(true)
+    if (participants.length === 0) {
+      console.error('参加者がいません')
+      setLoading(false)
+      return
+    }
+    if (eventName.length === 0) {
+      console.error('イベント名が入力されていません')
+      setLoading(false)
+      return
+    }
+    if (eventInfo.length === 0) {
+      console.error('イベント情報が入力されていません')
+      setLoading(false)
+      return
+    }
+    setOperatingMode(0)
+
+    const { success, eventId } = await pushRedis(
+      eventName,
+      eventInfo,
+      participants,
+      operatingMode,
+    )
+
+    if (success) {
+      console.log('データが正常に保存されました:', eventId)
+      setLoading(false)
+    } else {
+      console.error('データの保存に失敗しました')
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-4xl mx-auto animate-fadeIn">
@@ -76,11 +118,13 @@ export default function EventRegistrationPage() {
               label="イベント名を入力してください"
               type="text"
               variant="bordered"
+              onChange={(e) => setEventName(e.target.value)}
             />
             <p>イベント情報</p>
             <Textarea
               label="イベント情報を入力してください"
               variant="bordered"
+              onChange={(e) => setEventInfo(e.target.value)}
             />
             <p>出席者一覧（Excel）</p>
             <div
@@ -161,7 +205,10 @@ export default function EventRegistrationPage() {
             </AnimatePresence>
           </CardBody>
           <CardFooter>
-            <Button className="bg-blue-500 text-white px-4 py-2 rounded">
+            <Button
+              className="bg-blue-500 text-white px-4 py-2 rounded"
+              onClick={handleSubmit}
+            >
               登録
             </Button>
           </CardFooter>
