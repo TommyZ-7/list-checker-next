@@ -120,6 +120,7 @@ export default function CheckList() {
   const [newAttendee, setNewAttendee] = useState<string>('')
   const [dataFetched, setDataFetched] = useState(false)
   const [selectedAttendee, setSelectedAttendee] = useState<string>('')
+  const [roomName, setRoomName] = useState<string>('')
 
   const router = useRouter()
   const { uuid } = useParams<{ uuid: string }>()
@@ -139,6 +140,7 @@ export default function CheckList() {
               }),
             )
             setExpectedAttendees(attendees)
+            setRoomName(data.roomName)
           } else {
             console.error('データが見つかりませんでした。')
           }
@@ -209,7 +211,7 @@ export default function CheckList() {
       <header className="bg-white dark:bg-slate-800 shadow-lg sticky top-0 z-50 animate-fadeInDown animation-delay-100">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <h1 className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-            出席管理システム
+            {roomName}
           </h1>
           <button>
             <SunIcon />
