@@ -132,6 +132,7 @@ export default function CheckList() {
       const fetchData = async () => {
         try {
           const data = await pullRoomDataRedis(uuid)
+          console.log('取得したデータ:', data)
           if (data) {
             const attendees: Attendee[] = data.participants.map(
               (id: string) => ({
@@ -140,7 +141,7 @@ export default function CheckList() {
               }),
             )
             setExpectedAttendees(attendees)
-            setRoomName(data.roomName)
+            setRoomName(data.eventName)
           } else {
             console.error('データが見つかりませんでした。')
           }
