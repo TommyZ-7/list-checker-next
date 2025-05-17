@@ -3,77 +3,12 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardBody, CardFooter } from '@heroui/card'
 import { useParams, useRouter } from 'next/navigation'
 import { CircularProgress } from '@heroui/progress'
+import { Skeleton } from '@heroui/react'
 
 import { pullRoomDataRedis } from './pull-kv'
 import { cn } from '@/utility/tailwind_clsx'
 
-const UserIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className="w-5 h-5 mr-2"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
-    />
-  </svg>
-)
-
-const CheckCircleIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className="w-6 h-6 text-green-500"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-    />
-  </svg>
-)
-
-const XCircleIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className="w-6 h-6 text-red-500"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-    />
-  </svg>
-)
-
-const QuestionMarkCircleIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className="w-6 h-6 text-yellow-500"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
-    />
-  </svg>
-)
+import { pushRedis, pullRedis } from './data-sync'
 
 const SunIcon = () => (
   <svg
@@ -92,28 +27,14 @@ const SunIcon = () => (
   </svg>
 )
 
-const MoonIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className="w-6 h-6"
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"
-    />
-  </svg>
-)
 type Attendee = {
   id: string
   attended: boolean
 }
 
 export default function CheckList() {
+  const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms))
+
   const [expectedAttendees, setExpectedAttendees] = useState<Attendee[]>([
     { id: 'データ未読み込み', attended: true },
   ])
@@ -121,8 +42,9 @@ export default function CheckList() {
   const [dataFetched, setDataFetched] = useState(false)
   const [selectedAttendee, setSelectedAttendee] = useState<string>('')
   const [roomName, setRoomName] = useState<string>('')
+  const [onTheDay, setOnTheDay] = useState<string[]>([])
+  const [isSyncing, setIsSyncing] = useState(false)
 
-  const router = useRouter()
   const { uuid } = useParams<{ uuid: string }>()
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -142,6 +64,26 @@ export default function CheckList() {
             )
             setExpectedAttendees(attendees)
             setRoomName(data.eventName)
+
+            const syncData = await pullRedis(uuid)
+            console.log('同期データ:', syncData)
+            if (syncData) {
+              const syncedAttendees = syncData.participants.map(
+                (id: string) => ({
+                  id,
+                  attended: true, // 同期された参加者は出席済み
+                }),
+              )
+              setExpectedAttendees((prev) =>
+                prev.map((attendee) => {
+                  const synced = syncedAttendees.find(
+                    (s: { id: string }) => s.id === attendee.id,
+                  )
+                  return synced ? { ...attendee, attended: true } : attendee
+                }),
+              )
+              setOnTheDay(syncData.onthedays || [])
+            }
           } else {
             console.error('データが見つかりませんでした。')
           }
@@ -149,7 +91,9 @@ export default function CheckList() {
           console.error('データ取得エラー:', error)
         }
       }
+
       fetchData()
+
       setDataFetched(true) // データ取得完了フラグを立てる
     }
   }, [uuid])
@@ -184,9 +128,7 @@ export default function CheckList() {
       }
     } else {
       // 新規参加者として追加
-      const newParticipant: Attendee = { id: attendeeId, attended: true }
-      setExpectedAttendees([...expectedAttendees, newParticipant])
-      alert(`${attendeeId} が新規参加者として追加され、出席が登録されました。`)
+      setOnTheDay((prev) => [...prev, attendeeId])
     }
 
     // 入力フィールドにフォーカスを戻す
@@ -204,6 +146,51 @@ export default function CheckList() {
     }
   }
 
+  const handleDataSync = () => {
+    // データ同期処理をここに実装
+    console.log('データ同期処理を実行')
+    if (isSyncing) {
+      console.log('データ同期中です。しばらくお待ちください。')
+      return
+    }
+    setIsSyncing(true)
+    const sendlist = []
+    for (const attendee of expectedAttendees) {
+      if (attendee.attended) {
+        sendlist.push(attendee.id)
+      }
+    }
+    const sendData = {
+      uuid: uuid,
+      participants: sendlist,
+      onthedays: onTheDay,
+    }
+    pushRedis(uuid, sendData.participants, sendData.onthedays)
+    sleep(10000).then(async () => {
+      console.log('データ同期完了')
+      const updateDatas = await pullRedis(uuid)
+      for (const updateAttendee of updateDatas.participants) {
+        const existingAttendee = expectedAttendees.find(
+          (attendee) => attendee.id === updateAttendee,
+        )
+        if (existingAttendee) {
+          existingAttendee.attended = true
+        } else {
+          setExpectedAttendees((prev) => [
+            ...prev,
+            { id: updateAttendee, attended: true },
+          ])
+        }
+      }
+      for (const updateOnTheDay of updateDatas.onthedays) {
+        if (!onTheDay.includes(updateOnTheDay)) {
+          setOnTheDay((prev) => [...prev, updateOnTheDay])
+        }
+      }
+      setIsSyncing(false)
+    })
+  }
+
   return (
     <div
       className={`min-h-screen bg-slate-100 rounded-lg dark:bg-slate-900 text-slate-800 dark:text-slate-200 transition-colors duration-500 font-sans opacity-100 animate-fadeIn`}
@@ -214,9 +201,17 @@ export default function CheckList() {
           <h1 className="text-3xl font-bold text-blue-600 dark:text-blue-400">
             {roomName}
           </h1>
-          <button>
-            <SunIcon />
-          </button>
+          {isSyncing ? (
+            <CircularProgress
+              isIndeterminate
+              size="md"
+              className="text-blue-600 dark:text-blue-400"
+            />
+          ) : (
+            <button onClick={handleDataSync} className="p-2 rounded-md">
+              <SunIcon />
+            </button>
+          )}
         </div>
       </header>
 
@@ -331,24 +326,17 @@ export default function CheckList() {
                   <div className="bg-white p-3 rounded-md shadow-sm">
                     <p className="text-sm text-gray-500">当日参加</p>
                     <p className="text-2xl font-bold text-emerald-800 text-center">
-                      {
-                        expectedAttendees.filter(
-                          (attendee) => attendee.attended,
-                        ).length
-                      }{' '}
+                      {onTheDay.length}{' '}
                       <span className="text-sm font-normal text-gray-500">
                         人
                       </span>
                     </p>
                   </div>
                   <div className="bg-white p-3 rounded-md shadow-sm">
-                    <p className="text-sm text-gray-500">合計参加者数</p>
+                    <p className="text-sm text-gray-500">合計数</p>
                     <p className="text-2xl font-bold text-emerald-800 text-center">
-                      {
-                        expectedAttendees.filter(
-                          (attendee) => attendee.attended,
-                        ).length
-                      }{' '}
+                      {expectedAttendees.filter((attendee) => attendee.attended)
+                        .length + onTheDay.length}{' '}
                       <span className="text-sm font-normal text-gray-500">
                         人
                       </span>
@@ -387,7 +375,7 @@ export default function CheckList() {
                       key={student.id}
                       id={student.id}
                       className={cn(
-                        'bg-gray-50 transition-colors duration-150 animationFlash',
+                        'transition-colors duration-150 animationFlash',
                         {
                           'bg-emerald-100': selectedAttendee === student.id,
                         },
