@@ -24,6 +24,10 @@ export async function pushRedis(
   await redis.set(eventId, JSON.stringify(eventData), {
     EX: oneWeekInSeconds,
   })
+  const dataId = crypto.randomUUID()
+  await redis.set(eventId + ':dataid', dataId, {
+    EX: 7 * 24 * 60 * 60, // 1週間の有効期限
+  })
 
   await redis.quit()
   return { success: true, eventId }

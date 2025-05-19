@@ -20,7 +20,7 @@ import { cn } from '@/utility/tailwind_clsx'
 
 import useInterval from '@/hooks/useInterval'
 
-import { pushRedis, pullRedis, checkDataId } from './data-sync'
+import { pushRedis, pullRedis, checkDataId, pullDataId } from './data-sync'
 
 const SunIcon = () => (
   <svg
@@ -57,7 +57,8 @@ export default function CheckList() {
   const [onTheDay, setOnTheDay] = useState<string[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
   const [autoSync, setAutoSync] = useState(true)
-  const [dataId, setDataId] = useState<string | null>(null)
+  const [dataId, setDataId] = useState<string>('')
+  const [isDataUpdated, setIsDataUpdated] = useState(false)
 
   const { uuid } = useParams<{ uuid: string }>()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -93,6 +94,7 @@ export default function CheckList() {
               }
               setOnTheDay(syncData.onthedays || [])
             }
+            setDataId((await checkDataId(uuid)) ?? '') // データIDをチェック
           } else {
             console.error('データが見つかりませんでした。')
           }
@@ -154,6 +156,7 @@ export default function CheckList() {
         scrollToElement(attendeeId)
         setSelectedAttendee(attendeeId)
         setDataId(crypto.randomUUID()) // 新しいデータIDを生成
+        setIsDataUpdated(true) // データが更新されたフラグを立てる
       }
     } else {
       // 新規参加者として追加
@@ -162,6 +165,7 @@ export default function CheckList() {
       } else {
         setOnTheDay((prev) => [...prev, attendeeId])
         setDataId(crypto.randomUUID()) // 新しいデータIDを生成
+        setIsDataUpdated(true) // データが更新されたフラグを立てる
       }
     }
 
@@ -190,43 +194,45 @@ export default function CheckList() {
 
     const checkResult = await checkDataId(uuid)
     if (checkResult === dataId) {
-      console.log('データIDが一致したため同期をスキップしました:', checkResult)
-      return
-    }
-
-    setIsSyncing(true)
-
-    const sendData = {
-      uuid: uuid,
-      participants: dataCompression(),
-      onthedays: onTheDay,
-    }
-    const result = await pushRedis(
-      uuid,
-      sendData.participants,
-      sendData.onthedays,
-    )
-
-    setDataId((await result).dataid)
-    console.log('データ同期ID:', result.dataid)
-
-    sleep(10000).then(async () => {
-      console.log('データ同期完了')
-      const updateDatas = await pullRedis(uuid)
-      for (const updateAttendeeIndex of updateDatas.participants) {
-        setExpectedAttendees((prev) => {
-          const updated = [...prev]
-          updated[updateAttendeeIndex].attended = true
-          return updated
-        })
-      }
-      for (const updateOnTheDay of updateDatas.onthedays) {
-        if (!onTheDay.includes(updateOnTheDay)) {
-          setOnTheDay((prev) => [...prev, updateOnTheDay])
+      console.log('データIDが一致したため同期をスキップしました')
+    } else {
+      setIsSyncing(true)
+      if (isDataUpdated) {
+        const sendData = {
+          uuid: uuid,
+          participants: dataCompression(),
+          onthedays: onTheDay,
         }
+        const result = await pushRedis(
+          uuid,
+          sendData.participants,
+          sendData.onthedays,
+          dataId,
+        )
+
+        setDataId((await result).dataid)
       }
-      setIsSyncing(false)
-    })
+
+      sleep(10000).then(async () => {
+        console.log('データ同期完了')
+        const updateDatas = await pullRedis(uuid)
+        for (const updateAttendeeIndex of updateDatas.participants) {
+          setExpectedAttendees((prev) => {
+            const updated = [...prev]
+            updated[updateAttendeeIndex].attended = true
+            return updated
+          })
+        }
+        for (const updateOnTheDay of updateDatas.onthedays) {
+          if (!onTheDay.includes(updateOnTheDay)) {
+            setOnTheDay((prev) => [...prev, updateOnTheDay])
+          }
+        }
+        const dataidResult = await pullDataId(uuid)
+        setDataId(dataidResult ?? '')
+        setIsSyncing(false)
+      })
+    }
   }
 
   return (
@@ -500,6 +506,7 @@ export default function CheckList() {
                 <Button color="danger" variant="light" onPress={onClose}>
                   Close
                 </Button>
+                <p>クライアントデータid: {dataId}</p>
               </DrawerFooter>
             </>
           )}

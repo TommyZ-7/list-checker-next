@@ -6,6 +6,7 @@ export async function pushRedis(
   uuid: string,
   participants: number[],
   onthedays: string[],
+  dataId: string,
 ) {
   const redis = await createClient({
     url: process.env.REDIS_URL,
@@ -36,7 +37,6 @@ export async function pushRedis(
     await redis.set(uuidKey, JSON.stringify(pushData), {
       EX: 7 * 24 * 60 * 60, // 1週間の有効期限
     })
-    const dataId = crypto.randomUUID()
     await redis.set(uuid + ':dataid', dataId, {
       EX: 7 * 24 * 60 * 60, // 1週間の有効期限
     })
@@ -66,6 +66,7 @@ export async function pullRedis(uuid: string) {
       return { participants: [], onthedays: [] }
     }
     // データをJSONに変換
+
     const jsonData = JSON.parse(data)
 
     console.log('データ:', jsonData)
@@ -89,6 +90,27 @@ export async function checkDataId(uuid: string) {
       throw new Error('UUIDが指定されていません')
     }
     const dataId = await redis.get(uuid + ':dataid')
+    if (dataId) {
+      return dataId // データIDが存在する場合は返す
+    }
+  } catch (error) {
+    console.error('Redisエラー:', error)
+  } finally {
+    // 接続を閉じる
+    await redis.quit()
+  }
+}
+
+export async function pullDataId(eventId: string) {
+  const redis = await createClient({
+    url: process.env.REDIS_URL,
+    password: process.env.REDIS_PASSWORD,
+  }).connect()
+  try {
+    if (!eventId) {
+      throw new Error('イベントIDが指定されていません')
+    }
+    const dataId = await redis.get(eventId + ':dataid')
     if (dataId) {
       return dataId // データIDが存在する場合は返す
     }
