@@ -501,12 +501,12 @@ export default function CheckList() {
                 >
                   <span>データ圧縮テスト</span>
                 </Button>
+                <p>クライアントデータid: {dataId}</p>
               </DrawerBody>
               <DrawerFooter>
                 <Button color="danger" variant="light" onPress={onClose}>
                   Close
                 </Button>
-                <p>クライアントデータid: {dataId}</p>
               </DrawerFooter>
             </>
           )}
