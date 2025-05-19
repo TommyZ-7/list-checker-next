@@ -4,9 +4,12 @@ import { Card, CardHeader, CardBody, CardFooter } from '@heroui/card'
 import { useParams, useRouter } from 'next/navigation'
 import { CircularProgress } from '@heroui/progress'
 import { Skeleton } from '@heroui/react'
+import { Switch } from '@heroui/react'
 
 import { pullRoomDataRedis } from './pull-kv'
 import { cn } from '@/utility/tailwind_clsx'
+
+import useInterval from '@/hooks/useInterval'
 
 import { pushRedis, pullRedis } from './data-sync'
 
@@ -44,6 +47,7 @@ export default function CheckList() {
   const [roomName, setRoomName] = useState<string>('')
   const [onTheDay, setOnTheDay] = useState<string[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
+  const [autoSync, setAutoSync] = useState(true)
 
   const { uuid } = useParams<{ uuid: string }>()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -97,6 +101,12 @@ export default function CheckList() {
       setDataFetched(true) // データ取得完了フラグを立てる
     }
   }, [uuid])
+
+  useInterval(() => {
+    if (!autoSync) return // 自動同期がオフの場合は何もしない
+    if (!uuid) return // UUIDがない場合は同期しない
+    handleDataSync()
+  }, 120000)
 
   const scrollToElement = (elementId: string) => {
     const element = document.getElementById(elementId)
@@ -201,6 +211,13 @@ export default function CheckList() {
           <h1 className="text-3xl font-bold text-blue-600 dark:text-blue-400">
             {roomName}
           </h1>
+          <Switch
+            isSelected={autoSync}
+            onValueChange={setAutoSync}
+            className="ml-4"
+          >
+            自動同期
+          </Switch>
           {isSyncing ? (
             <CircularProgress
               isIndeterminate
