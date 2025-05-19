@@ -4,7 +4,7 @@ import { createClient } from 'redis'
 
 export async function pushRedis(
   uuid: string,
-  participants: string[],
+  participants: number[],
   onthedays: string[],
 ) {
   const redis = await createClient({
@@ -13,6 +13,7 @@ export async function pushRedis(
   }).connect()
   try {
     const uuidKey = uuid + ':datas'
+
     const pushData = {
       participants,
       onthedays,
@@ -35,7 +36,11 @@ export async function pushRedis(
     await redis.set(uuidKey, JSON.stringify(pushData), {
       EX: 7 * 24 * 60 * 60, // 1週間の有効期限
     })
-    return { success: true }
+    const dataId = crypto.randomUUID()
+    await redis.set(uuid + ':dataid', dataId, {
+      EX: 7 * 24 * 60 * 60, // 1週間の有効期限
+    })
+    return { success: true, dataid: dataId }
   } catch (error) {
     console.error('Redisエラー:', error)
     throw error
@@ -57,7 +62,8 @@ export async function pullRedis(uuid: string) {
     const uuidKey = uuid + ':datas'
     const data = await redis.get(uuidKey)
     if (!data) {
-      throw new Error(`UUID ${uuid} に対応するデータが見つかりません`)
+      //空データを返す
+      return { participants: [], onthedays: [] }
     }
     // データをJSONに変換
     const jsonData = JSON.parse(data)
@@ -67,6 +73,27 @@ export async function pullRedis(uuid: string) {
   } catch (error) {
     console.error('Redisエラー:', error)
     throw error
+  } finally {
+    // 接続を閉じる
+    await redis.quit()
+  }
+}
+
+export async function checkDataId(uuid: string) {
+  const redis = await createClient({
+    url: process.env.REDIS_URL,
+    password: process.env.REDIS_PASSWORD,
+  }).connect()
+  try {
+    if (!uuid) {
+      throw new Error('UUIDが指定されていません')
+    }
+    const dataId = await redis.get(uuid + ':dataid')
+    if (dataId) {
+      return dataId // データIDが存在する場合は返す
+    }
+  } catch (error) {
+    console.error('Redisエラー:', error)
   } finally {
     // 接続を閉じる
     await redis.quit()

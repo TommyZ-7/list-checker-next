@@ -41,11 +41,19 @@ export default function EventRegistrationPage() {
     const roomnames: string[] = []
     const roominfos: string[] = []
     const participants: string[] = []
+    console.log(uuids)
     for (const uuid of uuids) {
-      const roomData = JSON.parse(data[uuid])
-      roomnames.push(roomData.eventName)
-      roominfos.push(roomData.eventInfo)
-      participants.push(roomData.participants.join(', '))
+      //uuidに:を含む場合はスキップ
+      if (uuid.includes(':')) {
+        roomnames.push('データ用のUUID')
+        roominfos.push('データ用のUUID')
+        participants.push('データ用のUUID')
+      } else {
+        const roomData = JSON.parse(data[uuid])
+        roomnames.push(roomData.eventName)
+        roominfos.push(roomData.eventInfo)
+        participants.push(roomData.participants.join(', '))
+      }
     }
     setRoomnames(roomnames)
     setRoomInfos(roominfos)

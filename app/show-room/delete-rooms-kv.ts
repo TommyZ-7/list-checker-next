@@ -11,6 +11,10 @@ export async function delRedis(key: string) {
     // すべてのキーを取得
     const result = await redis.del(key)
     console.log('削除結果:', result)
+    const resultDatas = await redis.del(key + ':datas')
+    console.log('削除されたキー:', resultDatas)
+    const resultDataId = await redis.del(key + ':dataid')
+    console.log('削除されたデータID:', resultDataId)
     // すべてのキーとその値を取得
     return result
   } catch (error) {

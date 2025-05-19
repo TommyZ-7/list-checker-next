@@ -24,6 +24,7 @@ export async function pushRedis(
   await redis.set(eventId, JSON.stringify(eventData), {
     EX: oneWeekInSeconds,
   })
+
   await redis.quit()
   return { success: true, eventId }
 }

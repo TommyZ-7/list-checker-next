@@ -5,13 +5,22 @@ import { useParams, useRouter } from 'next/navigation'
 import { CircularProgress } from '@heroui/progress'
 import { Skeleton } from '@heroui/react'
 import { Switch } from '@heroui/react'
+import { Button } from '@heroui/button'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerBody,
+  DrawerFooter,
+  useDisclosure,
+} from '@heroui/react'
 
 import { pullRoomDataRedis } from './pull-kv'
 import { cn } from '@/utility/tailwind_clsx'
 
 import useInterval from '@/hooks/useInterval'
 
-import { pushRedis, pullRedis } from './data-sync'
+import { pushRedis, pullRedis, checkDataId } from './data-sync'
 
 const SunIcon = () => (
   <svg
@@ -48,9 +57,12 @@ export default function CheckList() {
   const [onTheDay, setOnTheDay] = useState<string[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
   const [autoSync, setAutoSync] = useState(true)
+  const [dataId, setDataId] = useState<string | null>(null)
 
   const { uuid } = useParams<{ uuid: string }>()
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const { isOpen, onOpen, onOpenChange } = useDisclosure()
 
   useEffect(() => {
     if (dataFetched) return // データが既に取得されている場合は再度取得しない
@@ -72,20 +84,13 @@ export default function CheckList() {
             const syncData = await pullRedis(uuid)
             console.log('同期データ:', syncData)
             if (syncData) {
-              const syncedAttendees = syncData.participants.map(
-                (id: string) => ({
-                  id,
-                  attended: true, // 同期された参加者は出席済み
-                }),
-              )
-              setExpectedAttendees((prev) =>
-                prev.map((attendee) => {
-                  const synced = syncedAttendees.find(
-                    (s: { id: string }) => s.id === attendee.id,
-                  )
-                  return synced ? { ...attendee, attended: true } : attendee
-                }),
-              )
+              for (const updateAttendeeIndex of syncData.participants) {
+                setExpectedAttendees((prev) => {
+                  const updated = [...prev]
+                  updated[updateAttendeeIndex].attended = true
+                  return updated
+                })
+              }
               setOnTheDay(syncData.onthedays || [])
             }
           } else {
@@ -115,6 +120,19 @@ export default function CheckList() {
     }
   }
 
+  const dataCompression = () => {
+    // データ圧縮処理をここに実装
+    const compressedData = []
+    let count = 0
+    for (const attendeeIndex of expectedAttendees) {
+      if (attendeeIndex.attended) {
+        compressedData.push(count)
+      }
+      count++
+    }
+    return compressedData
+  }
+
   const handleAttendance = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!newAttendee.trim()) return // 空の入力は無視
@@ -135,10 +153,16 @@ export default function CheckList() {
         setExpectedAttendees([...expectedAttendees])
         scrollToElement(attendeeId)
         setSelectedAttendee(attendeeId)
+        setDataId(crypto.randomUUID()) // 新しいデータIDを生成
       }
     } else {
       // 新規参加者として追加
-      setOnTheDay((prev) => [...prev, attendeeId])
+      if (onTheDay.includes(attendeeId)) {
+        alert(`${attendeeId} は既に当日参加者に含まれています。`)
+      } else {
+        setOnTheDay((prev) => [...prev, attendeeId])
+        setDataId(crypto.randomUUID()) // 新しいデータIDを生成
+      }
     }
 
     // 入力フィールドにフォーカスを戻す
@@ -156,41 +180,45 @@ export default function CheckList() {
     }
   }
 
-  const handleDataSync = () => {
+  const handleDataSync = async () => {
     // データ同期処理をここに実装
     console.log('データ同期処理を実行')
     if (isSyncing) {
       console.log('データ同期中です。しばらくお待ちください。')
       return
     }
-    setIsSyncing(true)
-    const sendlist = []
-    for (const attendee of expectedAttendees) {
-      if (attendee.attended) {
-        sendlist.push(attendee.id)
-      }
+
+    const checkResult = await checkDataId(uuid)
+    if (checkResult === dataId) {
+      console.log('データIDが一致したため同期をスキップしました:', checkResult)
+      return
     }
+
+    setIsSyncing(true)
+
     const sendData = {
       uuid: uuid,
-      participants: sendlist,
+      participants: dataCompression(),
       onthedays: onTheDay,
     }
-    pushRedis(uuid, sendData.participants, sendData.onthedays)
+    const result = await pushRedis(
+      uuid,
+      sendData.participants,
+      sendData.onthedays,
+    )
+
+    setDataId((await result).dataid)
+    console.log('データ同期ID:', result.dataid)
+
     sleep(10000).then(async () => {
       console.log('データ同期完了')
       const updateDatas = await pullRedis(uuid)
-      for (const updateAttendee of updateDatas.participants) {
-        const existingAttendee = expectedAttendees.find(
-          (attendee) => attendee.id === updateAttendee,
-        )
-        if (existingAttendee) {
-          existingAttendee.attended = true
-        } else {
-          setExpectedAttendees((prev) => [
-            ...prev,
-            { id: updateAttendee, attended: true },
-          ])
-        }
+      for (const updateAttendeeIndex of updateDatas.participants) {
+        setExpectedAttendees((prev) => {
+          const updated = [...prev]
+          updated[updateAttendeeIndex].attended = true
+          return updated
+        })
       }
       for (const updateOnTheDay of updateDatas.onthedays) {
         if (!onTheDay.includes(updateOnTheDay)) {
@@ -362,17 +390,15 @@ export default function CheckList() {
                 </div>
               </div>
             </CardBody>
+            <CardFooter className="flex justify-end">
+              <Button onPress={onOpen}>こんぱね</Button>
+            </CardFooter>
           </Card>
         </div>
 
         {/* 学生リスト */}
         <div>
           <Card className="h-full min-h-[400px] bg-white dark:bg-slate-800 shadow-lg rounded-xl p-6 animate-fadeInUp animation-delay-400">
-            <CardHeader>
-              <h2 className="text-2xl font-semibold mb-6 text-center text-slate-700 dark:text-slate-200">
-                学生リスト
-              </h2>
-            </CardHeader>
             <CardBody>
               <table className="min-w-full">
                 <thead>
@@ -452,7 +478,33 @@ export default function CheckList() {
         </div>
       </div>
 
-      {/* 新規学生追加モーダル */}
+      <Drawer isOpen={isOpen} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          {(onClose) => (
+            <>
+              <DrawerHeader className="flex flex-col gap-1">
+                こんぱね
+              </DrawerHeader>
+              <DrawerBody>
+                <Button
+                  color="primary"
+                  className="mb-4"
+                  onPress={() => {
+                    console.log(dataCompression())
+                  }}
+                >
+                  <span>データ圧縮テスト</span>
+                </Button>
+              </DrawerBody>
+              <DrawerFooter>
+                <Button color="danger" variant="light" onPress={onClose}>
+                  Close
+                </Button>
+              </DrawerFooter>
+            </>
+          )}
+        </DrawerContent>
+      </Drawer>
     </div>
   )
 }
